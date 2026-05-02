@@ -184,10 +184,12 @@ async def create_alert(
     if not product:
         raise HTTPException(status_code=404)
 
+    threshold_float = float(threshold_value) if threshold_value and threshold_value.strip() else None
+
     alert = Alert(
         product_id=product_id,
         alert_type=alert_type,
-        threshold_value=threshold_value,
+        threshold_value=threshold_float,
         telegram_chat_id=telegram_chat_id.strip(),
         label=label.strip() or None,
     )
