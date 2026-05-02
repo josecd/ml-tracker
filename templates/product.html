@@ -312,7 +312,7 @@ function onAlertTypeChange(sel) {
   const thresholdGroup = document.getElementById('thresholdGroup');
   const thresholdLabel = document.getElementById('thresholdLabel');
   const thresholdInput = document.getElementById('thresholdInput');
-  const noThreshold = ['new_minimum', 'below_7day_avg'];
+  const noThreshold = ['new_minimum', 'below_7day_avg', 'price_increase'];
   if (noThreshold.includes(sel.value)) {
     thresholdGroup.style.display = 'none';
     thresholdInput.required = false;
