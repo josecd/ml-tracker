@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — ML Tracker{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  {% if cards %}
+  <div class="card-grid mt-4">
+    {% for c in cards %}
+    <div class="card" data-product-id="{{ c.product.id }}" style="display:flex; flex-direction:column; gap:1rem;">
+
+      <!-- Header -->
+      <div class="flex items-center gap-3">
+        {% if c.product.image_url %}
+          <img src="{{ c.product.image_url }}" class="product-img" alt="">
+        {% endif %}
+        <div style="flex:1; min-width:0;">
+          <div class="truncate" style="font-size:.9rem; font-weight:600;">{{ c.product.title }}</div>
+          <div class="text-muted" style="font-size:.75rem;">{{ c.product.ml_item_id }}</div>
+        </div>
+        <button onclick="manualCheck({{ c.product.id }}, this)" class="btn btn-outline" title="Actualizar precio" style="font-size:.78rem; padding:.3rem .7rem;">↺ Actualizar</button>
+      </div>
+
+      <!-- Price -->
+      <div>
+        <div class="price-big">
+          {% if c.current_price %}${{ "{:,.0f}".format(c.current_price) }}{% else %}<span style="color:var(--muted)">—</span>{% endif %}
+        </div>
+        {% if c.change_pct is not none %}
+          {% if c.change_pct > 0 %}
+            <div class="price-change up mt-1">▲ {{ "%.2f"|format(c.change_pct) }}% vs check anterior</div>
+          {% elif c.change_pct < 0 %}
+            <div class="price-change down mt-1">▼ {{ "%.2f"|format(c.change_pct|abs) }}% vs check anterior</div>
+          {% else %}
+            <div class="price-change flat mt-1">Sin cambio</div>
+          {% endif %}
+        {% endif %}
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-row" style="background:var(--surface2); border-radius:8px; padding:.75rem;">
+        <div class="stat">
+          <div class="stat-label">Mínimo</div>
+          <div class="stat-value green">{% if c.min_price %}${{ "{:,.0f}".format(c.min_price) }}{% else %}—{% endif %}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Promedio</div>
+          <div class="stat-value">{% if c.avg_price %}${{ "{:,.0f}".format(c.avg_price) }}{% else %}—{% endif %}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Máximo</div>
+          <div class="stat-value red">{% if c.max_price %}${{ "{:,.0f}".format(c.max_price) }}{% else %}—{% endif %}</div>
+        </div>
+      </div>
+
+      <!-- Sparkline -->
+      {% if c.sparkline|length > 1 %}
+      <div style="height:60px; position:relative;">
+        <canvas id="spark-{{ c.product.id }}"></canvas>
+      </div>
+      {% endif %}
+
+      <!-- Footer -->
+      <div class="flex items-center justify-between" style="margin-top:auto;">
+        <div class="flex gap-2">
+          {% if c.alert_count > 0 %}
+            <span class="badge badge-cyan">{{ c.alert_count }} alerta{{ 's' if c.alert_count > 1 }}</span>
+          {% endif %}
+          <span class="badge badge-gray">Cada {{ c.product.check_interval_hours }}h</span>
+        </div>
+        <div class="flex gap-2">
+          <a href="/product/{{ c.product.id }}" class="btn btn-outline" style="font-size:.8rem; padding:.35rem .85rem;">Ver historial</a>
+          <button onclick="deleteProduct({{ c.product.id }})" class="btn btn-ghost" title="Eliminar" style="padding:.35rem .6rem; font-size:.9rem;">🗑</button>
+        </div>
+      </div>
+
+    </div>
+
+    {% if c.sparkline|length > 1 %}
+    <script>
+    (function() {
+      const ctx = document.getElementById('spark-{{ c.product.id }}').getContext('2d');
+      const data = {{ c.sparkline | tojson }};
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.map(d => d.t),
+          datasets: [{
+            data: data.map(d => d.y),
+            borderColor: '#00d4ff',
+            borderWidth: 1.5,
+            pointRadius: 0,
+            fill: true,
+            backgroundColor: 'rgba(0,212,255,0.06)',
+            tension: 0.3,
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { enabled: false } },
+          scales: { x: { display: false }, y: { display: false } },
+          animation: false,
+        }
+      });
+    })();
+    </script>
+    {% endif %}
+
+    {% endfor %}
+  </div>
+
+  {% else %}
+  <div class="empty-state mt-4">
+    <div style="font-size:3rem;">📦</div>
+    <h3>Sin productos rastreados</h3>
+    <p>Agrega una URL de MercadoLibre para empezar a rastrear precios.</p>
+    <button class="btn btn-primary mt-4" onclick="openAddModal()">+ Rastrear primer producto</button>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

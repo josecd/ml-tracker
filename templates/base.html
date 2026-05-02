@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}ML Price Tracker{% endblock %}</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #080d1a;
+      --surface: #111827;
+      --surface2: #1a2236;
+      --border: #1e2d45;
+      --cyan: #00d4ff;
+      --cyan-dim: rgba(0,212,255,0.12);
+      --green: #22c55e;
+      --red: #ef4444;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --mono: 'JetBrains Mono', 'Fira Mono', 'Courier New', monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100vh;
+    }
+    a { color: var(--cyan); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── NAV ── */
+    nav {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      display: flex;
+      align-items: center;
+      gap: 2rem;
+      height: 56px;
+    }
+    .nav-brand {
+      font-family: var(--mono);
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: 0.05em;
+    }
+    .nav-brand span { color: var(--cyan); }
+    .nav-links { display: flex; gap: 1.5rem; margin-left: auto; align-items: center; }
+    .nav-links a { color: var(--muted); font-size: 0.9rem; transition: color .15s; }
+    .nav-links a:hover { color: var(--text); text-decoration: none; }
+
+    /* ── LAYOUT ── */
+    .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+
+    /* ── CARDS ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+    }
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 1.25rem;
+    }
+
+    /* ── BUTTONS ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      padding: .55rem 1.2rem;
+      border-radius: 8px;
+      font-size: .875rem;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      transition: opacity .15s, background .15s;
+    }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-primary { background: var(--cyan); color: #000; }
+    .btn-primary:hover:not(:disabled) { opacity: .85; }
+    .btn-outline { background: transparent; color: var(--cyan); border: 1px solid var(--cyan); }
+    .btn-outline:hover:not(:disabled) { background: var(--cyan-dim); }
+    .btn-ghost { background: transparent; color: var(--muted); }
+    .btn-ghost:hover { color: var(--red); }
+    .btn-danger { background: var(--red); color: #fff; }
+
+    /* ── PRICE ── */
+    .price-big {
+      font-family: var(--mono);
+      font-size: 2.2rem;
+      font-weight: 700;
+      color: var(--cyan);
+      line-height: 1;
+    }
+    .price-change { font-size: .85rem; font-weight: 600; }
+    .price-change.up { color: var(--red); }
+    .price-change.down { color: var(--green); }
+    .price-change.flat { color: var(--muted); }
+
+    /* ── BADGES ── */
+    .badge {
+      display: inline-block;
+      padding: .15rem .5rem;
+      border-radius: 6px;
+      font-size: .75rem;
+      font-weight: 600;
+    }
+    .badge-cyan { background: var(--cyan-dim); color: var(--cyan); border: 1px solid var(--cyan); }
+    .badge-green { background: rgba(34,197,94,.12); color: var(--green); border: 1px solid var(--green); }
+    .badge-red { background: rgba(239,68,68,.12); color: var(--red); border: 1px solid var(--red); }
+    .badge-gray { background: var(--surface2); color: var(--muted); }
+
+    /* ── FORM ── */
+    .form-group { display: flex; flex-direction: column; gap: .4rem; }
+    label { font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+    input, select, textarea {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: .6rem .9rem;
+      font-size: .9rem;
+      width: 100%;
+      outline: none;
+      transition: border-color .15s;
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--cyan); }
+    select option { background: var(--surface2); }
+
+    /* ── STATS ROW ── */
+    .stats-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .stat { flex: 1; min-width: 80px; text-align: center; }
+    .stat-label { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: .2rem; }
+    .stat-value { font-family: var(--mono); font-size: 1.05rem; font-weight: 700; }
+    .stat-value.green { color: var(--green); }
+    .stat-value.red { color: var(--red); }
+
+    /* ── MODAL ── */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.7);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100;
+      opacity: 0; pointer-events: none; transition: opacity .2s;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 2rem;
+      width: 100%;
+      max-width: 480px;
+      transform: translateY(16px);
+      transition: transform .2s;
+    }
+    .modal-overlay.open .modal { transform: translateY(0); }
+    .modal-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 1.5rem;
+    }
+    .modal-title { font-size: 1.1rem; font-weight: 700; }
+
+    /* ── TABLE ── */
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: .6rem .8rem; text-align: left; font-size: .85rem; }
+    th { color: var(--muted); font-size: .75rem; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+    tr:not(:last-child) td { border-bottom: 1px solid var(--border); }
+    td { color: var(--text); }
+
+    /* ── TOAST ── */
+    #toast {
+      position: fixed; bottom: 1.5rem; right: 1.5rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: .75rem 1.2rem;
+      font-size: .875rem;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .3s;
+      z-index: 200;
+    }
+    #toast.show { opacity: 1; }
+    #toast.ok { border-color: var(--green); color: var(--green); }
+    #toast.err { border-color: var(--red); color: var(--red); }
+
+    /* ── MISC ── */
+    .section-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem; }
+    .divider { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
+    .empty-state { text-align: center; color: var(--muted); padding: 3rem 1rem; }
+    .empty-state h3 { font-size: 1.1rem; margin-bottom: .5rem; color: var(--text); }
+    .product-img {
+      width: 56px; height: 56px; object-fit: contain;
+      background: var(--surface2); border-radius: 8px; padding: 4px;
+    }
+    .flex { display: flex; } .items-center { align-items: center; }
+    .gap-3 { gap: .75rem; } .gap-2 { gap: .5rem; }
+    .justify-between { justify-content: space-between; }
+    .mt-1 { margin-top: .25rem; } .mt-2 { margin-top: .5rem; }
+    .mt-3 { margin-top: .75rem; } .mt-4 { margin-top: 1rem; }
+    .text-muted { color: var(--muted); font-size: .85rem; }
+    .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">ML<span>TRACKER</span></a>
+  <div class="nav-links">
+    <a href="/">Dashboard</a>
+    <button class="btn btn-primary" onclick="openAddModal()" style="padding:.4rem 1rem; font-size:.85rem">+ Rastrear producto</button>      <button class="btn btn-outline" onclick="refreshAll(this)" id="refreshAllBtn" style="padding:.4rem 1rem; font-size:.85rem;">↺ Actualizar todo</button>  </div>
+</nav>
+
+{% block content %}{% endblock %}
+
+<!-- Add product modal -->
+<div class="modal-overlay" id="addModal" onclick="if(event.target===this)closeAddModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Agregar producto</span>
+      <button class="btn btn-ghost" onclick="closeAddModal()" style="padding:.2rem .6rem">✕</button>
+    </div>
+    <form id="addForm" onsubmit="submitAddProduct(event)">
+      <div class="form-group">
+        <label>URL de MercadoLibre</label>
+        <input type="url" name="url" placeholder="https://www.mercadolibre.com.mx/..." required>
+      </div>
+      <div class="form-group mt-3">
+        <label>Revisar precio cada</label>
+        <select name="check_interval">
+          <option value="1">1 hora</option>
+          <option value="3">3 horas</option>
+          <option value="6" selected>6 horas</option>
+          <option value="12">12 horas</option>
+          <option value="24">24 horas</option>
+        </select>
+      </div>
+      <div class="flex gap-2 mt-4" style="justify-content:flex-end">
+        <button type="button" class="btn btn-ghost" onclick="closeAddModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary" id="addBtn">Agregar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+function openAddModal() {
+  document.getElementById('addModal').classList.add('open');
+}
+function closeAddModal() {
+  document.getElementById('addModal').classList.remove('open');
+  document.getElementById('addForm').reset();
+}
+
+function showToast(msg, type='ok') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'show ' + type;
+  setTimeout(() => t.className = '', 3000);
+}
+
+async function submitAddProduct(e) {
+  e.preventDefault();
+  const btn = document.getElementById('addBtn');
+  btn.disabled = true; btn.textContent = 'Agregando...';
+  const form = e.target;
+  const data = new FormData(form);
+  try {
+    const res = await fetch('/api/products', { method: 'POST', body: data });
+    const json = await res.json();
+    if (json.ok) {
+      showToast('✅ Producto agregado y primer precio registrado');
+      closeAddModal();
+      setTimeout(() => location.reload(), 1000);
+    } else {
+      showToast('❌ ' + json.error, 'err');
+    }
+  } catch(err) {
+    showToast('❌ Error de red', 'err');
+  }
+  btn.disabled = false; btn.textContent = 'Agregar';
+}
+
+async function deleteProduct(id) {
+  if (!confirm('¿Eliminar este producto y todo su historial?')) return;
+  const res = await fetch('/api/products/' + id, { method: 'DELETE' });
+  const json = await res.json();
+  if (json.ok) { showToast('🗑️ Producto eliminado'); setTimeout(() => location.reload(), 800); }
+}
+
+async function manualCheck(id, btn) {
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = '...';
+  try {
+    const res = await fetch('/api/products/' + id + '/check', { method: 'POST' });
+    const json = await res.json();
+    if (json.ok) { showToast('✅ Precio actualizado: $' + json.price?.toLocaleString('es-MX')); setTimeout(() => location.reload(), 1000); }
+    else showToast('❌ Error al actualizar', 'err');
+  } catch { showToast('❌ Error de red', 'err'); }
+  btn.disabled = false; btn.textContent = orig;
+}
+
+async function refreshAll(btn) {
+  const cards = document.querySelectorAll('[data-product-id]');
+  if (!cards.length) return;
+  btn.disabled = true; btn.textContent = '...';
+  let updated = 0;
+  for (const card of cards) {
+    const id = card.dataset.productId;
+    try {
+      const res = await fetch('/api/products/' + id + '/check', { method: 'POST' });
+      const json = await res.json();
+      if (json.ok) updated++;
+    } catch {}
+  }
+  showToast('✅ ' + updated + ' producto(s) actualizados');
+  setTimeout(() => location.reload(), 1000);
+  btn.disabled = false; btn.textContent = '↺ Actualizar todo';
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,393 @@
+{% extends "base.html" %}
+{% block title %}{{ product.title }} — ML Tracker{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  <!-- Back -->
+  <div class="mt-4" style="margin-bottom:1rem;">
+    <a href="/" style="color:var(--muted); font-size:.85rem;">← Dashboard</a>
+  </div>
+
+  <!-- Product Header -->
+  <div class="card flex gap-3 items-center" style="flex-wrap:wrap;">
+    {% if product.image_url %}
+      <img src="{{ product.image_url }}" style="width:80px; height:80px; object-fit:contain; background:var(--surface2); border-radius:10px; padding:6px;">
+    {% endif %}
+    <div style="flex:1; min-width:200px;">
+      <div style="font-size:1.2rem; font-weight:700;">{{ product.title }}</div>
+      <div class="text-muted mt-1">{{ product.ml_item_id }}</div>
+      <div class="flex items-center gap-2 mt-2" style="flex-wrap:wrap;">
+        <a href="{{ product.url }}" target="_blank" class="btn btn-outline" style="font-size:.8rem; padding:.35rem .85rem;">Ver en MercadoLibre ↗</a>
+        <button onclick="manualCheck({{ product.id }}, this)" class="btn btn-ghost" style="font-size:.85rem;">↺ Actualizar ahora</button>
+        <div class="flex items-center gap-2" style="background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:.35rem .75rem;">
+          <span style="font-size:.8rem; color:var(--muted);">Revisar cada</span>
+          <select id="intervalSelect" onchange="updateInterval({{ product.id }}, this)" style="background:transparent; border:none; color:var(--cyan); font-size:.85rem; font-weight:600; cursor:pointer; outline:none; padding:0;">
+            <option value="1" {% if product.check_interval_hours == 1 %}selected{% endif %}>1h</option>
+            <option value="3" {% if product.check_interval_hours == 3 %}selected{% endif %}>3h</option>
+            <option value="6" {% if product.check_interval_hours == 6 %}selected{% endif %}>6h</option>
+            <option value="12" {% if product.check_interval_hours == 12 %}selected{% endif %}>12h</option>
+            <option value="24" {% if product.check_interval_hours == 24 %}selected{% endif %}>24h</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div style="text-align:right;">
+      <div class="price-big">
+        {% if card.current_price %}${{ "{:,.2f}".format(card.current_price) }}{% else %}—{% endif %}
+      </div>
+      {% if card.change_pct is not none %}
+        {% if card.change_pct > 0 %}
+          <div class="price-change up mt-1">▲ {{ "%.2f"|format(card.change_pct) }}%</div>
+        {% elif card.change_pct < 0 %}
+          <div class="price-change down mt-1">▼ {{ "%.2f"|format(card.change_pct|abs) }}%</div>
+        {% else %}
+          <div class="price-change flat mt-1">Sin cambio</div>
+        {% endif %}
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="card mt-3">
+    <div class="stats-row">
+      <div class="stat">
+        <div class="stat-label">Precio Inicial</div>
+        <div class="stat-value">{% if product.initial_price %}${{ "{:,.2f}".format(product.initial_price) }}{% else %}—{% endif %}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Mínimo Histórico</div>
+        <div class="stat-value green">{% if card.min_price %}${{ "{:,.2f}".format(card.min_price) }}{% else %}—{% endif %}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Promedio</div>
+        <div class="stat-value">{% if card.avg_price %}${{ "{:,.2f}".format(card.avg_price) }}{% else %}—{% endif %}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Máximo Histórico</div>
+        <div class="stat-value red">{% if card.max_price %}${{ "{:,.2f}".format(card.max_price) }}{% else %}—{% endif %}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Registros</div>
+        <div class="stat-value">{{ history|length }}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chart -->
+  <div class="card mt-3">
+    <div class="section-title">Historial de Precios</div>
+    <div style="height:280px; position:relative;">
+      <canvas id="priceChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Alerts Section -->
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.25rem; margin-top:1.25rem; flex-wrap:wrap;" class="alerts-grid">
+
+    <!-- Existing alerts -->
+    <div class="card">
+      <div class="flex items-center justify-between" style="margin-bottom:1rem;">
+        <div class="section-title" style="margin:0;">Alertas activas</div>
+        <span class="badge badge-cyan">{{ product.alerts|length }}</span>
+      </div>
+
+      {% if product.alerts %}
+      <table>
+        <thead>
+          <tr>
+            <th>Tipo</th>
+            <th>Umbral</th>
+            <th>Chat ID</th>
+            <th>Estado</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for alert in product.alerts %}
+          <tr id="alert-row-{{ alert.id }}">
+            <td>
+              {% set icons = {
+                'target_price': '🎯',
+                'new_minimum': '📉',
+                'percent_drop_initial': '📉%',
+                'sudden_drop': '⚡',
+                'below_7day_avg': '📊'
+              } %}
+              {% set labels = {
+                'target_price': 'Precio objetivo',
+                'new_minimum': 'Nuevo mínimo',
+                'percent_drop_initial': '% caída inicial',
+                'sudden_drop': 'Caída brusca',
+                'below_7day_avg': 'Bajo promedio 7d'
+              } %}
+              {{ icons.get(alert.alert_type, '🔔') }} {{ labels.get(alert.alert_type, alert.alert_type) }}
+              {% if alert.label %}<div class="text-muted" style="font-size:.75rem;">{{ alert.label }}</div>{% endif %}
+            </td>
+            <td style="font-family:var(--mono);">
+              {% if alert.threshold_value is not none %}
+                {% if alert.alert_type == 'target_price' %}${{ "{:,.0f}".format(alert.threshold_value) }}
+                {% else %}{{ alert.threshold_value }}%{% endif %}
+              {% else %}—{% endif %}
+            </td>
+            <td style="font-family:var(--mono); font-size:.8rem;">{{ alert.telegram_chat_id }}</td>
+            <td>
+              <button onclick="toggleAlert({{ alert.id }}, this)"
+                class="badge {% if alert.is_active %}badge-green{% else %}badge-gray{% endif %}"
+                style="cursor:pointer; border:none; font-size:.75rem;"
+                data-active="{{ 'true' if alert.is_active else 'false' }}">
+                {{ 'Activa' if alert.is_active else 'Pausada' }}
+              </button>
+            </td>
+            <td>
+              <button onclick="deleteAlert({{ alert.id }})" class="btn btn-ghost" title="Eliminar" style="padding:.2rem .4rem;">🗑</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state" style="padding:1.5rem;">
+        <p>Sin alertas configuradas.</p>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Add alert form -->
+    <div class="card">
+      <div class="section-title">Nueva alerta de Telegram</div>
+      <form id="alertForm" onsubmit="submitAlert(event)">
+        <input type="hidden" name="product_id" value="{{ product.id }}">
+
+        <div class="form-group">
+          <label>Tipo de alerta</label>
+          <select name="alert_type" id="alertType" onchange="onAlertTypeChange(this)">
+            <option value="target_price">🎯 Precio objetivo — avisa cuando baje de X</option>
+            <option value="new_minimum">📉 Nuevo mínimo histórico</option>
+            <option value="percent_drop_initial">📉 Caída % desde precio inicial</option>
+            <option value="sudden_drop">⚡ Caída brusca en un check</option>
+            <option value="below_7day_avg">📊 Por debajo del promedio 7 días</option>
+          </select>
+        </div>
+
+        <div class="form-group mt-3" id="thresholdGroup">
+          <label id="thresholdLabel">Precio objetivo (MXN)</label>
+          <input type="number" name="threshold_value" id="thresholdInput"
+            placeholder="8000" step="0.01" min="0">
+        </div>
+
+        <div class="form-group mt-3">
+          <label>Tu Telegram Chat ID</label>
+          <input type="text" name="telegram_chat_id" placeholder="Ej: 123456789" required>
+          <div class="text-muted" style="font-size:.75rem; margin-top:.25rem;">
+            Escríbele a <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a> en Telegram para obtener tu ID.
+          </div>
+        </div>
+
+        <div class="form-group mt-3">
+          <label>Nombre de la alerta (opcional)</label>
+          <input type="text" name="label" placeholder="Ej: Quiero comprarlo si baja">
+        </div>
+
+        <button type="submit" class="btn btn-primary mt-4" style="width:100%;">Crear alerta</button>
+      </form>
+
+      <hr class="divider">
+
+      <div class="section-title" style="font-size:.9rem;">Probar conexión Telegram</div>
+      <div class="flex gap-2 mt-2">
+        <input type="text" id="testChatId" placeholder="Tu Chat ID" style="flex:1;">
+        <button onclick="testTelegram()" class="btn btn-outline">Enviar prueba</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Recent history table -->
+  <div class="card mt-3" style="margin-bottom:2rem;">
+    <div class="section-title">Últimos registros</div>
+    {% if history %}
+    <table>
+      <thead><tr><th>#</th><th>Precio</th><th>Fecha y hora</th><th>Cambio</th></tr></thead>
+      <tbody>
+        {% for i in range(history|length - 1, [history|length - 31, -1]|max, -1) %}
+        {% set h = history[i] %}
+        {% set prev = history[i-1] if i > 0 else none %}
+        <tr>
+          <td style="color:var(--muted);">{{ history|length - i }}</td>
+          <td style="font-family:var(--mono); font-weight:600;">${{ "{:,.2f}".format(h.y) }}</td>
+          <td style="color:var(--muted);">{{ h.t }}</td>
+          <td>
+            {% if prev %}
+              {% set diff = h.y - prev.y %}
+              {% if diff > 0 %}<span class="price-change up">▲ ${{ "{:,.2f}".format(diff) }}</span>
+              {% elif diff < 0 %}<span class="price-change down">▼ ${{ "{:,.2f}".format(diff|abs) }}</span>
+              {% else %}<span class="price-change flat">—</span>{% endif %}
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state"><p>Sin registros aún.</p></div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Chart ──────────────────────────────────────────────────────────────────
+const historyData = {{ history | tojson }};
+if (historyData.length > 0) {
+  const ctx = document.getElementById('priceChart').getContext('2d');
+  const prices = historyData.map(d => d.y);
+  const minP = Math.min(...prices);
+  const maxP = Math.max(...prices);
+  const avgP = prices.reduce((a,b)=>a+b,0)/prices.length;
+
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: historyData.map(d => d.t),
+      datasets: [{
+        label: 'Precio MXN',
+        data: prices,
+        borderColor: '#00d4ff',
+        borderWidth: 2,
+        pointRadius: historyData.length <= 20 ? 4 : 0,
+        pointHoverRadius: 6,
+        pointBackgroundColor: '#00d4ff',
+        fill: true,
+        backgroundColor: (ctx) => {
+          const gradient = ctx.chart.ctx.createLinearGradient(0, 0, 0, 280);
+          gradient.addColorStop(0, 'rgba(0,212,255,0.18)');
+          gradient.addColorStop(1, 'rgba(0,212,255,0.01)');
+          return gradient;
+        },
+        tension: 0.3,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1a2236',
+          borderColor: '#1e2d45',
+          borderWidth: 1,
+          callbacks: {
+            label: ctx => ' $' + ctx.raw.toLocaleString('es-MX', {minimumFractionDigits:2})
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: {
+            color: '#64748b', maxTicksLimit: 8,
+            maxRotation: 0,
+          }
+        },
+        y: {
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: {
+            color: '#64748b',
+            callback: v => '$' + v.toLocaleString('es-MX')
+          }
+        }
+      }
+    }
+  });
+}
+
+// ── Alert form helpers ─────────────────────────────────────────────────────
+function onAlertTypeChange(sel) {
+  const thresholdGroup = document.getElementById('thresholdGroup');
+  const thresholdLabel = document.getElementById('thresholdLabel');
+  const thresholdInput = document.getElementById('thresholdInput');
+  const noThreshold = ['new_minimum', 'below_7day_avg'];
+  if (noThreshold.includes(sel.value)) {
+    thresholdGroup.style.display = 'none';
+    thresholdInput.required = false;
+  } else {
+    thresholdGroup.style.display = 'flex';
+    thresholdInput.required = true;
+    if (sel.value === 'target_price') {
+      thresholdLabel.textContent = 'Precio objetivo (MXN)';
+      thresholdInput.placeholder = '8000';
+    } else {
+      thresholdLabel.textContent = 'Porcentaje de caída (%)';
+      thresholdInput.placeholder = '10';
+    }
+  }
+}
+
+async function submitAlert(e) {
+  e.preventDefault();
+  const form = e.target;
+  const btn = form.querySelector('[type=submit]');
+  btn.disabled = true; btn.textContent = 'Guardando...';
+  const data = new FormData(form);
+  // Remove threshold if not needed
+  const noThreshold = ['new_minimum', 'below_7day_avg'];
+  if (noThreshold.includes(data.get('alert_type'))) {
+    data.delete('threshold_value');
+  }
+  const res = await fetch('/api/alerts', { method: 'POST', body: data });
+  const json = await res.json();
+  if (json.ok) {
+    showToast('✅ Alerta creada'); form.reset();
+    setTimeout(() => location.reload(), 800);
+  } else {
+    showToast('❌ Error creando alerta', 'err');
+  }
+  btn.disabled = false; btn.textContent = 'Crear alerta';
+}
+
+async function deleteAlert(id) {
+  if (!confirm('¿Eliminar esta alerta?')) return;
+  const res = await fetch('/api/alerts/' + id, { method: 'DELETE' });
+  const json = await res.json();
+  if (json.ok) { showToast('🗑️ Alerta eliminada'); setTimeout(() => location.reload(), 600); }
+}
+
+async function toggleAlert(id, btn) {
+  const res = await fetch('/api/alerts/' + id + '/toggle', { method: 'PATCH' });
+  const json = await res.json();
+  if (json.ok) {
+    btn.textContent = json.is_active ? 'Activa' : 'Pausada';
+    btn.className = 'badge ' + (json.is_active ? 'badge-green' : 'badge-gray');
+    btn.dataset.active = json.is_active ? 'true' : 'false';
+    showToast(json.is_active ? '✅ Alerta activada' : '⏸ Alerta pausada');
+  }
+}
+
+async function updateInterval(id, sel) {
+  const data = new FormData();
+  data.append('check_interval', sel.value);
+  const res = await fetch('/api/products/' + id + '/interval', { method: 'PATCH', body: data });
+  const json = await res.json();
+  if (json.ok) showToast('✅ Intervalo actualizado a ' + sel.value + 'h');
+  else showToast('❌ Error al actualizar', 'err');
+}
+
+async function testTelegram() {
+  const chatId = document.getElementById('testChatId').value.trim();
+  if (!chatId) { showToast('Ingresa tu Chat ID', 'err'); return; }
+  const data = new FormData(); data.append('chat_id', chatId);
+  const res = await fetch('/api/telegram/test', { method: 'POST', body: data });
+  const json = await res.json();
+  if (json.ok) showToast('✅ Mensaje enviado desde @' + json.bot);
+  else showToast('❌ ' + (json.error || 'Error al enviar'), 'err');
+}
+</script>
+<style>
+@media (max-width: 700px) {
+  .alerts-grid { grid-template-columns: 1fr !important; }
+}
+</style>
+{% endblock %}
