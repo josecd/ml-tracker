@@ -47,15 +47,15 @@ def extract_ml_id(url: str) -> str:
     if m:
         return m.group(1)
 
-    # Item ID at end of path
-    m = re.search(r"/(MLM[\d]+)(?:[?#]|$)", url)
+    # Item ID at end of path (with or without dash: MLM-123 or MLM123)
+    m = re.search(r"/(MLM-?[\d]+)(?:[?#-]|$)", url)
     if m:
-        return m.group(1)
+        return m.group(1).replace("-", "")
 
     # Any MLM id in the URL
-    m = re.search(r"(MLM\d+)", url)
+    m = re.search(r"(MLM-?\d+)", url)
     if m:
-        return m.group(1)
+        return m.group(1).replace("-", "")
 
     raise ValueError(f"No se pudo extraer el ID de MercadoLibre de: {url}")
 
