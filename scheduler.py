@@ -2,6 +2,7 @@
 Price check scheduler + alert evaluation.
 """
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy.orm import Session
 from database import SessionLocal, Product, PriceHistory, Alert
@@ -23,7 +24,7 @@ async def _evaluate_alerts(product: Product, new_price: float, db: Session):
         return
 
     min_price = min(prices)
-    now = datetime.utcnow()
+    now = datetime.now(ZoneInfo("America/Cancun")).replace(tzinfo=None)
 
     # 7-day average (prices from last 7 days)
     cutoff = now - timedelta(days=7)
@@ -108,7 +109,7 @@ async def check_product_price(product_id: int):
             product.image_url = data["image_url"]
 
         # Save price record
-        record = PriceHistory(product_id=product_id, price=new_price, timestamp=datetime.utcnow())
+        record = PriceHistory(product_id=product_id, price=new_price, timestamp=datetime.now(ZoneInfo("America/Cancun")).replace(tzinfo=None))
         db.add(record)
         db.commit()
         db.refresh(product)

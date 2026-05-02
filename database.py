@@ -1,4 +1,5 @@
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, ForeignKey
 from sqlalchemy.orm import DeclarativeBase, sessionmaker, relationship
 from config import DATABASE_URL
@@ -21,7 +22,7 @@ class Product(Base):
     image_url = Column(String, nullable=True)
     check_interval_hours = Column(Integer, default=6)
     initial_price = Column(Float, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("America/Cancun")).replace(tzinfo=None))
 
     prices = relationship("PriceHistory", back_populates="product", cascade="all, delete-orphan", order_by="PriceHistory.timestamp")
     alerts = relationship("Alert", back_populates="product", cascade="all, delete-orphan")
@@ -33,7 +34,7 @@ class PriceHistory(Base):
     id = Column(Integer, primary_key=True, index=True)
     product_id = Column(Integer, ForeignKey("products.id"))
     price = Column(Float)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=lambda: datetime.now(ZoneInfo("America/Cancun")).replace(tzinfo=None))
 
     product = relationship("Product", back_populates="prices")
 
@@ -50,7 +51,7 @@ class Alert(Base):
     label = Column(String, nullable=True)   # User-friendly name for the alert
     is_active = Column(Boolean, default=True)
     last_triggered_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("America/Cancun")).replace(tzinfo=None))
 
     product = relationship("Product", back_populates="alerts")
 
