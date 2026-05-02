@@ -20,6 +20,7 @@
       <div class="flex items-center gap-2 mt-2" style="flex-wrap:wrap;">
         <a href="{{ product.url }}" target="_blank" class="btn btn-outline" style="font-size:.8rem; padding:.35rem .85rem;">Ver en MercadoLibre ↗</a>
         <button onclick="manualCheck({{ product.id }}, this)" class="btn btn-ghost" style="font-size:.85rem;">↺ Actualizar ahora</button>
+        <a href="/api/products/{{ product.id }}/export.csv" class="btn btn-ghost" style="font-size:.85rem;" title="Descargar historial CSV">⬇ CSV</a>
         <div class="flex items-center gap-2" style="background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:.35rem .75rem;">
           <span style="font-size:.8rem; color:var(--muted);">Revisar cada</span>
           <select id="intervalSelect" onchange="updateInterval({{ product.id }}, this)" style="background:transparent; border:none; color:var(--cyan); font-size:.85rem; font-weight:600; cursor:pointer; outline:none; padding:0;">
@@ -109,6 +110,7 @@
             <td>
               {% set icons = {
                 'target_price': '🎯',
+                'target_price_high': '🎯↑',
                 'new_minimum': '📉',
                 'percent_drop_initial': '📉%',
                 'sudden_drop': '⚡',
@@ -116,7 +118,8 @@
                 'price_increase': '📈'
               } %}
               {% set labels = {
-                'target_price': 'Precio objetivo',
+                'target_price': 'Precio objetivo (baja)',
+                'target_price_high': 'Precio objetivo (sube)',
                 'new_minimum': 'Nuevo mínimo',
                 'percent_drop_initial': '% caída inicial',
                 'sudden_drop': 'Caída brusca',
@@ -165,6 +168,7 @@
           <label>Tipo de alerta</label>
           <select name="alert_type" id="alertType" onchange="onAlertTypeChange(this)">
             <option value="target_price">🎯 Precio objetivo — avisa cuando baje de X</option>
+            <option value="target_price_high">🎯↑ Precio objetivo alto — avisa cuando suba a X</option>
             <option value="new_minimum">📉 Nuevo mínimo histórico</option>
             <option value="percent_drop_initial">📉 Caída % desde precio inicial</option>
             <option value="sudden_drop">⚡ Caída brusca en un check</option>
@@ -207,7 +211,7 @@
   </div>
 
   <!-- Recent history table -->
-  <div class="card mt-3" style="margin-bottom:2rem;">
+  <div class="card mt-3">
     <div class="section-title">Últimos registros</div>
     {% if history %}
     <table>
@@ -235,6 +239,17 @@
     {% else %}
     <div class="empty-state"><p>Sin registros aún.</p></div>
     {% endif %}
+  </div>
+
+  <!-- Alert history -->
+  <div class="card mt-3" style="margin-bottom:2rem;">
+    <div class="flex items-center justify-between" style="margin-bottom:1rem;">
+      <div class="section-title" style="margin:0;">Historial de alertas disparadas</div>
+      <button onclick="loadAlertLogs()" class="btn btn-ghost" style="font-size:.8rem;">↺ Cargar</button>
+    </div>
+    <div id="alertLogsContainer">
+      <div class="empty-state" style="padding:1.5rem;"><p style="font-size:.85rem;">Haz clic en "Cargar" para ver el historial.</p></div>
+    </div>
   </div>
 
 </div>
@@ -312,7 +327,7 @@ function onAlertTypeChange(sel) {
   const thresholdGroup = document.getElementById('thresholdGroup');
   const thresholdLabel = document.getElementById('thresholdLabel');
   const thresholdInput = document.getElementById('thresholdInput');
-  const noThreshold = ['new_minimum', 'below_7day_avg', 'price_increase'];
+const noThreshold = ['new_minimum', 'below_7day_avg', 'price_increase'];
   if (noThreshold.includes(sel.value)) {
     thresholdGroup.style.display = 'none';
     thresholdInput.required = false;
@@ -320,8 +335,11 @@ function onAlertTypeChange(sel) {
     thresholdGroup.style.display = 'flex';
     thresholdInput.required = true;
     if (sel.value === 'target_price') {
-      thresholdLabel.textContent = 'Precio objetivo (MXN)';
+      thresholdLabel.textContent = 'Precio objetivo mínimo (MXN)';
       thresholdInput.placeholder = '8000';
+    } else if (sel.value === 'target_price_high') {
+      thresholdLabel.textContent = 'Precio objetivo alto (MXN)';
+      thresholdInput.placeholder = '12000';
     } else {
       thresholdLabel.textContent = 'Porcentaje de caída (%)';
       thresholdInput.placeholder = '10';
@@ -386,6 +404,38 @@ async function testTelegram() {
   const json = await res.json();
   if (json.ok) showToast('✅ Mensaje enviado desde @' + json.bot);
   else showToast('❌ ' + (json.error || 'Error al enviar'), 'err');
+}
+
+const alertTypeLabels = {
+  target_price: '🎯 Precio objetivo (baja)',
+  target_price_high: '🎯↑ Precio objetivo (sube)',
+  new_minimum: '📉 Nuevo mínimo',
+  percent_drop_initial: '📉 % caída inicial',
+  sudden_drop: '⚡ Caída brusca',
+  below_7day_avg: '📊 Bajo promedio 7d',
+  price_increase: '📈 Subida de precio',
+};
+
+async function loadAlertLogs() {
+  const container = document.getElementById('alertLogsContainer');
+  container.innerHTML = '<div class="empty-state" style="padding:1rem;"><p>Cargando...</p></div>';
+  const res = await fetch('/api/products/{{ product.id }}/alert-logs');
+  const json = await res.json();
+  if (!json.ok || !json.logs.length) {
+    container.innerHTML = '<div class="empty-state" style="padding:1rem;"><p>Sin alertas disparadas aún.</p></div>';
+    return;
+  }
+  let html = '<table><thead><tr><th>Tipo</th><th>Precio</th><th>Fecha</th><th>Detalle</th></tr></thead><tbody>';
+  for (const l of json.logs) {
+    html += `<tr>
+      <td>${alertTypeLabels[l.alert_type] || l.alert_type}</td>
+      <td style="font-family:var(--mono); font-weight:600;">$${l.price.toLocaleString('es-MX', {minimumFractionDigits:2})}</td>
+      <td style="color:var(--muted);">${l.triggered_at}</td>
+      <td style="color:var(--muted); font-size:.8rem;">${l.extra}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  container.innerHTML = html;
 }
 </script>
 <style>

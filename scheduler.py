@@ -5,9 +5,9 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy.orm import Session
-from database import SessionLocal, Product, PriceHistory, Alert
+from database import SessionLocal, Product, PriceHistory, Alert, AlertLog
 from scraper import fetch_item_data
-from telegram_bot import send_price_alert
+from telegram_bot import send_price_alert, send_message
 
 scheduler = AsyncIOScheduler(timezone="America/Mexico_City")
 
@@ -50,6 +50,11 @@ async def _evaluate_alerts(product: Product, new_price: float, db: Session):
                 triggered = True
                 extra = f"(anterior mínimo: ${min_price:,.2f})"
 
+        elif alert.alert_type == "target_price_high":
+            if alert.threshold_value is not None and new_price >= alert.threshold_value:
+                triggered = True
+                extra = f"(alcanzó ${new_price:,.2f})"
+
         elif alert.alert_type == "percent_drop_initial":
             if product.initial_price and alert.threshold_value is not None:
                 drop_pct = (product.initial_price - new_price) / product.initial_price * 100
@@ -87,6 +92,15 @@ async def _evaluate_alerts(product: Product, new_price: float, db: Session):
             )
             if sent:
                 alert.last_triggered_at = now
+                log = AlertLog(
+                    alert_id=alert.id,
+                    product_id=product.id,
+                    alert_type=alert.alert_type,
+                    price_at_trigger=new_price,
+                    triggered_at=now,
+                    extra=extra,
+                )
+                db.add(log)
                 db.commit()
 
 
@@ -99,7 +113,25 @@ async def check_product_price(product_id: int):
         if not product:
             return
 
-        data = await fetch_item_data(product.url)
+        now = datetime.now(ZoneInfo("America/Cancun")).replace(tzinfo=None)
+
+        try:
+            data = await fetch_item_data(product.url)
+        except Exception as e:
+            product.last_checked_at = now
+            product.last_check_ok = False
+            db.commit()
+            # Notify active alert owners that product is unavailable
+            chat_ids = {a.telegram_chat_id for a in product.alerts if a.is_active and a.telegram_chat_id}
+            for chat_id in chat_ids:
+                await send_message(
+                    chat_id,
+                    f"⚠️ <b>ML Tracker</b> — No se pudo obtener el precio de "
+                    f"<b>{product.title}</b>. Es posible que el producto no esté disponible.",
+                )
+            print(f"[scheduler] Error checking product {product_id}: {e}")
+            return
+
         new_price = data["price"]
 
         # Update title/image if they changed (e.g., first run)
@@ -108,8 +140,11 @@ async def check_product_price(product_id: int):
         if data.get("image_url") and not product.image_url:
             product.image_url = data["image_url"]
 
+        product.last_checked_at = now
+        product.last_check_ok = True
+
         # Save price record
-        record = PriceHistory(product_id=product_id, price=new_price, timestamp=datetime.now(ZoneInfo("America/Cancun")).replace(tzinfo=None))
+        record = PriceHistory(product_id=product_id, price=new_price, timestamp=now)
         db.add(record)
         db.commit()
         db.refresh(product)
@@ -118,6 +153,23 @@ async def check_product_price(product_id: int):
 
     except Exception as e:
         print(f"[scheduler] Error checking product {product_id}: {e}")
+    finally:
+        db.close()
+
+
+# ── Cleanup job ───────────────────────────────────────────────────────────────
+
+async def _cleanup_old_history():
+    """Delete price_history records older than 90 days."""
+    db: Session = SessionLocal()
+    try:
+        cutoff = datetime.now(ZoneInfo("America/Cancun")).replace(tzinfo=None) - timedelta(days=90)
+        deleted = db.query(PriceHistory).filter(PriceHistory.timestamp < cutoff).delete()
+        db.commit()
+        if deleted:
+            print(f"[scheduler] Cleaned {deleted} old price records")
+    except Exception as e:
+        print(f"[scheduler] Cleanup error: {e}")
     finally:
         db.close()
 
@@ -150,3 +202,12 @@ def reschedule_all(db: Session):
     products = db.query(Product).all()
     for product in products:
         schedule_product(product.id, product.check_interval_hours)
+    # Daily cleanup of old price history (> 90 days)
+    if not scheduler.get_job("cleanup_history"):
+        scheduler.add_job(
+            _cleanup_old_history,
+            trigger="interval",
+            hours=24,
+            id="cleanup_history",
+            misfire_grace_time=3600,
+        )

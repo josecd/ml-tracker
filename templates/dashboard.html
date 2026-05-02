@@ -5,7 +5,17 @@
 <div class="container">
 
   {% if cards %}
-  <div class="card-grid mt-4">
+  <!-- Sort controls -->
+  <div class="flex items-center gap-2 mt-4" style="flex-wrap:wrap;">
+    <span style="font-size:.8rem; color:var(--muted);">Ordenar:</span>
+    {% for val, label in [('recent','Recientes'),('name','Nombre'),('price_asc','Precio ↑'),('price_desc','Precio ↓'),('drop','Mayor caída')] %}
+    <a href="/?sort={{ val }}"
+       class="btn {% if sort == val %}btn-primary{% else %}btn-ghost{% endif %}"
+       style="font-size:.78rem; padding:.25rem .7rem;">{{ label }}</a>
+    {% endfor %}
+  </div>
+
+  <div class="card-grid mt-3">
     {% for c in cards %}
     <div class="card" data-product-id="{{ c.product.id }}" style="display:flex; flex-direction:column; gap:1rem;">
 
@@ -16,7 +26,18 @@
         {% endif %}
         <div style="flex:1; min-width:0;">
           <div class="truncate" style="font-size:.9rem; font-weight:600;">{{ c.product.title }}</div>
-          <div class="text-muted" style="font-size:.75rem;">{{ c.product.ml_item_id }}</div>
+          <div class="text-muted" style="font-size:.75rem; display:flex; align-items:center; gap:.4rem;">
+            {{ c.product.ml_item_id }}
+            {% if c.last_checked_at %}
+              {% if c.last_check_ok %}
+                <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--green);" title="OK {{ c.last_checked_at }}"></span>
+                <span style="font-size:.7rem;">{{ c.last_checked_at }}</span>
+              {% else %}
+                <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--red);" title="Error {{ c.last_checked_at }}"></span>
+                <span style="font-size:.7rem; color:var(--red);">Error</span>
+              {% endif %}
+            {% endif %}
+          </div>
         </div>
         <button onclick="manualCheck({{ c.product.id }}, this)" class="btn btn-outline" title="Actualizar precio" style="font-size:.78rem; padding:.3rem .7rem;">↺ Actualizar</button>
       </div>

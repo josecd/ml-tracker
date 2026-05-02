@@ -164,8 +164,9 @@ async def _fetch_via_scraping(url: str, ml_id: str) -> dict:
 async def fetch_item_data(url: str) -> dict:
     """
     Main entry point. Returns dict with: price, title, image_url, url, ml_item_id.
-    Tries ML API first (if configured), falls back to scraping.
+    Tries ML API first (if configured), falls back to scraping with up to 3 retries.
     """
+    import asyncio
     ml_id = extract_ml_id(url)
 
     # Try official API for item IDs (not product IDs)
@@ -175,8 +176,16 @@ async def fetch_item_data(url: str) -> dict:
             api_data["ml_item_id"] = ml_id
             return api_data
 
-    # Scraping fallback
+    # Scraping fallback with retry (3 attempts, exponential backoff)
     fetch_url = build_fetch_url(ml_id, url)
-    data = await _fetch_via_scraping(fetch_url, ml_id)
-    data["ml_item_id"] = ml_id
-    return data
+    last_error: Exception = Exception("Unknown error")
+    for attempt in range(3):
+        try:
+            data = await _fetch_via_scraping(fetch_url, ml_id)
+            data["ml_item_id"] = ml_id
+            return data
+        except Exception as e:
+            last_error = e
+            if attempt < 2:
+                await asyncio.sleep(2 ** attempt)  # 1s, 2s
+    raise last_error

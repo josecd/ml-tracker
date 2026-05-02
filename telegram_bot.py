@@ -38,17 +38,21 @@ def build_alert_message(
 ) -> str:
     icons = {
         "target_price": "🎯",
+        "target_price_high": "🎯",
         "new_minimum": "📉",
         "percent_drop_initial": "📉",
         "sudden_drop": "⚡",
         "below_7day_avg": "📊",
+        "price_increase": "📈",
     }
     labels = {
         "target_price": f"Alcanzó precio objetivo (${threshold_value:,.0f})" if threshold_value else "Precio objetivo alcanzado",
+        "target_price_high": f"Alcanzó precio alto objetivo (${threshold_value:,.0f})" if threshold_value else "Precio alto objetivo alcanzado",
         "new_minimum": "¡Nuevo mínimo histórico!",
         "percent_drop_initial": f"Bajó {threshold_value:.0f}% desde que lo agregaste" if threshold_value else "Bajó % significativo",
         "sudden_drop": f"Caída brusca de {threshold_value:.0f}% en un check" if threshold_value else "Caída brusca detectada",
         "below_7day_avg": "Por debajo del promedio de 7 días",
+        "price_increase": "Subida de precio detectada",
     }
     icon = icons.get(alert_type, "🔔")
     label = labels.get(alert_type, "Alerta de precio")

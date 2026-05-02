@@ -1,15 +1,17 @@
 import os
+import csv
+import io
 from contextlib import asynccontextmanager
 from datetime import datetime
-from fastapi import FastAPI, Request, Depends, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi import FastAPI, Request, Depends, Form, HTTPException, Query
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 from config import DEFAULT_CHECK_INTERVAL
-from database import create_tables, get_db, Product, PriceHistory, Alert
+from database import create_tables, get_db, Product, PriceHistory, Alert, AlertLog
 from scraper import fetch_item_data, extract_ml_id
 from scheduler import scheduler, schedule_product, unschedule_product, reschedule_all, check_product_price
 from telegram_bot import verify_bot_token, send_message
@@ -47,6 +49,7 @@ def _product_card_data(product: Product) -> dict:
         change_pct = (current_price - prev_price) / prev_price * 100
 
     sparkline = [{"t": p.timestamp.isoformat(), "y": p.price} for p in prices[-30:]]
+    last_checked_at = product.last_checked_at.strftime("%H:%M") if product.last_checked_at else None
 
     return {
         "product": product,
@@ -58,16 +61,28 @@ def _product_card_data(product: Product) -> dict:
         "change_pct": change_pct,
         "sparkline": sparkline,
         "alert_count": len([a for a in product.alerts if a.is_active]),
+        "last_checked_at": last_checked_at,
+        "last_check_ok": product.last_check_ok,
     }
 
 
 # ── Pages ─────────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request, db: Session = Depends(get_db)):
-    products = db.query(Product).order_by(Product.created_at.desc()).all()
+async def dashboard(request: Request, sort: str = Query("recent"), db: Session = Depends(get_db)):
+    products = db.query(Product).all()
     cards = [_product_card_data(p) for p in products]
-    return templates.TemplateResponse("dashboard.html", {"request": request, "cards": cards})
+    if sort == "price_asc":
+        cards.sort(key=lambda c: c["current_price"] or 0)
+    elif sort == "price_desc":
+        cards.sort(key=lambda c: c["current_price"] or 0, reverse=True)
+    elif sort == "drop":
+        cards.sort(key=lambda c: c["change_pct"] or 0)
+    elif sort == "name":
+        cards.sort(key=lambda c: (c["product"].title or "").lower())
+    else:  # recent
+        cards.sort(key=lambda c: c["product"].created_at or datetime.min, reverse=True)
+    return templates.TemplateResponse("dashboard.html", {"request": request, "cards": cards, "sort": sort})
 
 
 @app.get("/product/{product_id}", response_class=HTMLResponse)
@@ -242,3 +257,53 @@ async def test_telegram(chat_id: str = Form(...)):
         return JSONResponse({"ok": False, "error": "Token de bot no configurado o inválido."})
     sent = await send_message(chat_id, "✅ <b>ML Tracker</b> — Conexión de Telegram confirmada.")
     return JSONResponse({"ok": sent, "bot": bot_username})
+
+
+# ── API: CSV Export ───────────────────────────────────────────────────────────
+
+@app.get("/api/products/{product_id}/export.csv")
+async def export_prices_csv(product_id: int, db: Session = Depends(get_db)):
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=404)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Fecha", "Precio MXN"])
+    for p in product.prices:
+        writer.writerow([p.timestamp.strftime("%Y-%m-%d %H:%M"), p.price])
+    output.seek(0)
+    filename = f"{product.ml_item_id}_precios.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ── API: Alert logs ───────────────────────────────────────────────────────────
+
+@app.get("/api/products/{product_id}/alert-logs")
+async def get_alert_logs(product_id: int, db: Session = Depends(get_db)):
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=404)
+    logs = (
+        db.query(AlertLog)
+        .filter(AlertLog.product_id == product_id)
+        .order_by(AlertLog.triggered_at.desc())
+        .limit(50)
+        .all()
+    )
+    return JSONResponse({
+        "ok": True,
+        "logs": [
+            {
+                "id": l.id,
+                "alert_type": l.alert_type,
+                "price": l.price_at_trigger,
+                "triggered_at": l.triggered_at.strftime("%Y-%m-%d %H:%M"),
+                "extra": l.extra or "",
+            }
+            for l in logs
+        ],
+    })
