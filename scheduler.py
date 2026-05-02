@@ -68,6 +68,12 @@ async def _evaluate_alerts(product: Product, new_price: float, db: Session):
                 triggered = True
                 extra = f"(promedio 7d: ${avg_7day:,.2f})"
 
+        elif alert.alert_type == "price_increase":
+            if new_price > prev_price:
+                triggered = True
+                rise_pct = (new_price - prev_price) / prev_price * 100
+                extra = f"(subió {rise_pct:.1f}% desde ${prev_price:,.2f})"
+
         if triggered and alert.telegram_chat_id:
             sent = await send_price_alert(
                 chat_id=alert.telegram_chat_id,

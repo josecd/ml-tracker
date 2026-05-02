@@ -112,14 +112,16 @@
                 'new_minimum': '📉',
                 'percent_drop_initial': '📉%',
                 'sudden_drop': '⚡',
-                'below_7day_avg': '📊'
+                'below_7day_avg': '📊',
+                'price_increase': '📈'
               } %}
               {% set labels = {
                 'target_price': 'Precio objetivo',
                 'new_minimum': 'Nuevo mínimo',
                 'percent_drop_initial': '% caída inicial',
                 'sudden_drop': 'Caída brusca',
-                'below_7day_avg': 'Bajo promedio 7d'
+                'below_7day_avg': 'Bajo promedio 7d',
+                'price_increase': 'Subida de precio'
               } %}
               {{ icons.get(alert.alert_type, '🔔') }} {{ labels.get(alert.alert_type, alert.alert_type) }}
               {% if alert.label %}<div class="text-muted" style="font-size:.75rem;">{{ alert.label }}</div>{% endif %}
@@ -167,6 +169,7 @@
             <option value="percent_drop_initial">📉 Caída % desde precio inicial</option>
             <option value="sudden_drop">⚡ Caída brusca en un check</option>
             <option value="below_7day_avg">📊 Por debajo del promedio 7 días</option>
+            <option value="price_increase">📈 Subida de precio desde último check</option>
           </select>
         </div>
 
