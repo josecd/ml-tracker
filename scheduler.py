@@ -14,28 +14,28 @@ scheduler = AsyncIOScheduler(timezone="America/Mexico_City")
 
 # ── Alert evaluation ──────────────────────────────────────────────────────────
 
-async def _evaluate_alerts(product: Product, new_price: float, db: Session):
+async def _evaluate_alerts(
+    product: Product,
+    new_price: float,
+    prev_price: float,
+    old_min: float | None,
+    db: Session,
+):
     alerts = [a for a in product.alerts if a.is_active]
     if not alerts:
         return
 
-    prices = [p.price for p in product.prices]  # ordered by timestamp asc
-    if not prices:
-        return
-
-    min_price = min(prices)
     now = datetime.now(ZoneInfo("America/Cancun")).replace(tzinfo=None)
 
-    # 7-day average (prices from last 7 days)
+    min_price = old_min if old_min is not None else new_price
+
+    # 7-day average (all prices in last 7 days, including new record)
     cutoff = now - timedelta(days=7)
     recent_prices = [
         p.price for p in product.prices
         if p.timestamp >= cutoff
     ]
     avg_7day = sum(recent_prices) / len(recent_prices) if recent_prices else None
-
-    # Previous price (before this check)
-    prev_price = prices[-1] if prices else new_price
 
     for alert in alerts:
         triggered = False
@@ -143,13 +143,18 @@ async def check_product_price(product_id: int):
         product.last_checked_at = now
         product.last_check_ok = True
 
+        # Capture previous price info BEFORE saving the new record
+        prev_prices = [ph.price for ph in product.prices]
+        prev_price = prev_prices[-1] if prev_prices else new_price
+        old_min = min(prev_prices) if prev_prices else None
+
         # Save price record
         record = PriceHistory(product_id=product_id, price=new_price, timestamp=now)
         db.add(record)
         db.commit()
         db.refresh(product)
 
-        await _evaluate_alerts(product, new_price, db)
+        await _evaluate_alerts(product, new_price, prev_price, old_min, db)
 
     except Exception as e:
         print(f"[scheduler] Error checking product {product_id}: {e}")
