@@ -75,7 +75,7 @@ async def _evaluate_alerts(
                 extra = f"(promedio 7d: ${avg_7day:,.2f})"
 
         elif alert.alert_type == "price_increase":
-            if new_price > prev_price:
+            if prev_price > 0 and new_price > prev_price:
                 triggered = True
                 rise_pct = (new_price - prev_price) / prev_price * 100
                 extra = f"(subió {rise_pct:.1f}% desde ${prev_price:,.2f})"
@@ -118,17 +118,25 @@ async def check_product_price(product_id: int):
         try:
             data = await fetch_item_data(product.url)
         except Exception as e:
+            err_str = str(e)
+            is_rate_limit = "429" in err_str
+            was_ok = product.last_check_ok is not False  # None or True = was OK before
             product.last_checked_at = now
             product.last_check_ok = False
             db.commit()
-            # Notify active alert owners that product is unavailable
-            chat_ids = {a.telegram_chat_id for a in product.alerts if a.is_active and a.telegram_chat_id}
-            for chat_id in chat_ids:
-                await send_message(
-                    chat_id,
-                    f"⚠️ <b>ML Tracker</b> — No se pudo obtener el precio de "
-                    f"<b>{product.title}</b>. Es posible que el producto no esté disponible.",
-                )
+            if is_rate_limit:
+                # ML rate limit — silently skip, don't spam user
+                print(f"[scheduler] Rate limited (429) for product {product_id}, will retry next interval")
+                return
+            # Only notify on the first failure (transition ok → error)
+            if was_ok:
+                chat_ids = {a.telegram_chat_id for a in product.alerts if a.is_active and a.telegram_chat_id}
+                for chat_id in chat_ids:
+                    await send_message(
+                        chat_id,
+                        f"⚠️ <b>ML Tracker</b> — No se pudo obtener el precio de "
+                        f"<b>{product.title}</b>. Es posible que el producto no esté disponible.",
+                    )
             print(f"[scheduler] Error checking product {product_id}: {e}")
             return
 
@@ -205,8 +213,22 @@ def unschedule_product(product_id: int):
 def reschedule_all(db: Session):
     """Called on app startup to restore all scheduled jobs."""
     products = db.query(Product).all()
-    for product in products:
-        schedule_product(product.id, product.check_interval_hours)
+    for i, product in enumerate(products):
+        # Stagger startup: each product delayed by 2 min to avoid rate limits
+        delay_minutes = i * 2
+        first_run = datetime.now() + timedelta(minutes=delay_minutes)
+        job_id = f"product_{product.id}"
+        if scheduler.get_job(job_id):
+            scheduler.remove_job(job_id)
+        scheduler.add_job(
+            check_product_price,
+            trigger="interval",
+            hours=product.check_interval_hours,
+            id=job_id,
+            args=[product.id],
+            next_run_time=first_run,
+            misfire_grace_time=3600,
+        )
     # Daily cleanup of old price history (> 90 days)
     if not scheduler.get_job("cleanup_history"):
         scheduler.add_job(
